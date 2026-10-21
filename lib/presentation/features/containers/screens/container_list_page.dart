@@ -16,6 +16,8 @@ import '../providers/container_list_provider.dart';
 import '../models/container_list_state.dart';
 import '../widgets/container_card.dart';
 import '../widgets/container_action_sheet.dart';
+import '../../../../domain/entities/server.dart';
+import '../../../../data/repositories_impl/server_repository_impl.dart';
 
 class ContainerListPage extends StatelessWidget {
   const ContainerListPage({super.key, required this.serverId});
@@ -26,13 +28,15 @@ class ContainerListPage extends StatelessWidget {
   Widget build(BuildContext context) {
     return ProviderScope(
       overrides: [activeServerIdProvider.overrideWithValue(serverId)],
-      child: const _ContainerListContent(),
+      child: _ContainerListContent(serverId: serverId),
     );
   }
 }
 
 class _ContainerListContent extends ConsumerStatefulWidget {
-  const _ContainerListContent();
+  const _ContainerListContent({required this.serverId});
+
+  final int serverId;
 
   @override
   ConsumerState<_ContainerListContent> createState() =>
@@ -46,6 +50,7 @@ class _ContainerListPageState extends ConsumerState<_ContainerListContent>
   final _searchFocusNode = FocusNode();
   bool _isSearching = false;
   bool _overlaps = false;
+  Server? _server;
 
   @override
   void onAllSheetsClosed() {
@@ -56,6 +61,15 @@ class _ContainerListPageState extends ConsumerState<_ContainerListContent>
   void initState() {
     super.initState();
     _scrollController.addListener(_onScroll);
+    _loadServer();
+  }
+
+  Future<void> _loadServer() async {
+    try {
+      final repo = ref.read(serverRepositoryProvider);
+      final s = await repo.find(widget.serverId);
+      if (mounted && s != null) setState(() => _server = s);
+    } catch (_) {}
   }
 
   @override
@@ -293,6 +307,7 @@ class _ContainerListPageState extends ConsumerState<_ContainerListContent>
                           final container = containers[index];
                           return ContainerCard(
                             container: container,
+                            server: _server,
                             stats: state.stats[container.containerID],
                             onTap: () => showContainerActionSheet(
                               context,

@@ -4,6 +4,10 @@ import '../../../../core/localization/l10n_x.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/utils/format_utils.dart';
 import '../../../../data/dto/container/container_search_dto.dart';
+import '../../../../domain/entities/server.dart';
+import 'container_web_url.dart';
+import '../../../common/components/in_app_browser_page.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../../../data/dto/container/container_resource_stats_dto.dart';
 import '../../../common/components/resource_metric_tile.dart';
 import '../../../common/components/status_tag.dart';
@@ -13,6 +17,7 @@ class ContainerCard extends StatelessWidget {
   const ContainerCard({
     super.key,
     required this.container,
+    this.server,
     this.stats,
     this.onTap,
     this.onFavoriteTap,
@@ -22,6 +27,7 @@ class ContainerCard extends StatelessWidget {
   });
 
   final ContainerItemDto container;
+  final Server? server;
   final ContainerResourceStatsDto? stats;
   final VoidCallback? onTap;
   final VoidCallback? onFavoriteTap;
@@ -150,6 +156,7 @@ class ContainerCard extends StatelessWidget {
                 ),
               ],
             ),
+            ..._buildWebUrlRow(context),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -212,6 +219,61 @@ class ContainerCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  /// 容器 Web 访问地址行：解析 ports 生成 http://host:port，点击内嵌浏览器打开。
+  List<Widget> _buildWebUrlRow(BuildContext context) {
+    if (container.state.toLowerCase() != 'running') return const [];
+    final srv = server;
+    if (srv == null) return const [];
+    final urls = extractWebUrls(container.ports, srv);
+    if (urls.isEmpty) return const [];
+    final first = urls.first;
+    final extra = urls.length - 1;
+    return [
+      const SizedBox(height: 12),
+      GestureDetector(
+        onTap: () {
+          Navigator.of(context, rootNavigator: true).push(
+            CupertinoPageRoute(
+              builder: (_) => InAppBrowserPage(
+                title: container.name,
+                initialUrl: first,
+              ),
+            ),
+          );
+        },
+        onLongPress: () async {
+          // 长按用系统浏览器打开（部分页面如终端在 WebView 里不可用）
+          final ok = await canLaunchUrl(first);
+          if (ok) await launchUrl(first, mode: LaunchMode.externalApplication);
+        },
+        child: Row(
+          children: [
+            Icon(TablerIcons.world,
+                size: 14, color: CupertinoColors.systemBlue.resolveFrom(context)),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                extra > 0 ? '$first  (+$extra)' : '$first',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: CupertinoColors.systemBlue.resolveFrom(context),
+                  decoration: TextDecoration.underline,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            Icon(
+              TablerIcons.external_link,
+              size: 14,
+              color: AppColors.tertiaryLabel(context),
+            ),
+          ],
+        ),
+      ),
+    ];
   }
 }
 
