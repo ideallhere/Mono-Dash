@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
@@ -18,6 +19,8 @@ import '../widgets/container_card.dart';
 import '../widgets/container_action_sheet.dart';
 import '../../../../domain/entities/server.dart';
 import '../../../../data/repositories_impl/server_repository_impl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import '../../../common/app_toast.dart';
 
 class ContainerListPage extends StatelessWidget {
   const ContainerListPage({super.key, required this.serverId});
@@ -51,6 +54,7 @@ class _ContainerListPageState extends ConsumerState<_ContainerListContent>
   bool _isSearching = false;
   bool _overlaps = false;
   Server? _server;
+  Map<String, String> _customWebUrls = {};
 
   @override
   void onAllSheetsClosed() {
@@ -68,8 +72,30 @@ class _ContainerListPageState extends ConsumerState<_ContainerListContent>
     try {
       final repo = ref.read(serverRepositoryProvider);
       final s = await repo.find(widget.serverId);
-      if (mounted && s != null) setState(() => _server = s);
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString('container_web_urls') ?? '{}';
+      final map = (jsonDecode(raw) as Map).cast<String, String>();
+      if (mounted) {
+        setState(() {
+          _server = s;
+          _customWebUrls = map;
+        });
+      }
     } catch (_) {}
+  }
+
+  Future<void> _saveCustomWebUrl(String containerId, String? url) async {
+    final prefs = await SharedPreferences.getInstance();
+    final raw = prefs.getString('container_web_urls') ?? '{}';
+    final map = (jsonDecode(raw) as Map).cast<String, String>();
+    if (url == null || url.isEmpty) {
+      map.remove(containerId);
+    } else {
+      map[containerId] = url;
+    }
+    await prefs.setString('container_web_urls', jsonEncode(map));
+    if (mounted) setState(() => _customWebUrls = map);
+    showAppToast(url == null ? '已恢复自动地址' : 'Web 地址已更新');
   }
 
   @override
@@ -308,6 +334,8 @@ class _ContainerListPageState extends ConsumerState<_ContainerListContent>
                           return ContainerCard(
                             container: container,
                             server: _server,
+                            customWebUrl: _customWebUrls[container.containerID],
+                            onEditWebUrl: _saveCustomWebUrl,
                             stats: state.stats[container.containerID],
                             onTap: () => showContainerActionSheet(
                               context,

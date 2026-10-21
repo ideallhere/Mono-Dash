@@ -24,7 +24,8 @@ class RevenueCatConfig {
   static const entitlementId = 'Mono Dash Unlimited';
   static const offeringId = 'default';
   static const freeServerLimit = 1;
-  static const bypassServerLimitCheck = false;
+  // 自用构建：跳过内购校验，解锁全部服务器管理（保留代码结构以便上游同步）
+  static const bypassServerLimitCheck = true;
   static const testFlightApiBaseUrl = 'https://testflight.dhcp.services';
 
   static String? get apiKey {

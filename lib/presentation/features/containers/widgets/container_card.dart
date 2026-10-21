@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_tabler_icons/flutter_tabler_icons.dart';
 import '../../../../core/localization/l10n_x.dart';
 import '../../../../core/theme/app_theme.dart';
@@ -6,6 +7,7 @@ import '../../../../core/utils/format_utils.dart';
 import '../../../../data/dto/container/container_search_dto.dart';
 import '../../../../domain/entities/server.dart';
 import 'container_web_url.dart';
+import '../../../common/app_toast.dart';
 import '../../../common/components/in_app_browser_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../data/dto/container/container_resource_stats_dto.dart';
@@ -18,6 +20,8 @@ class ContainerCard extends StatelessWidget {
     super.key,
     required this.container,
     this.server,
+    this.customWebUrl,
+    this.onEditWebUrl,
     this.stats,
     this.onTap,
     this.onFavoriteTap,
@@ -28,6 +32,12 @@ class ContainerCard extends StatelessWidget {
 
   final ContainerItemDto container;
   final Server? server;
+
+  /// 用户手动覆盖的 Web 地址（长按菜单里编辑）。空 = 用自动解析的。
+  final String? customWebUrl;
+
+  /// 编辑地址回调（containerId, newUrl|null）。null = 清除自定义恢复自动。
+  final void Function(String containerId, String? url)? onEditWebUrl;
   final ContainerResourceStatsDto? stats;
   final VoidCallback? onTap;
   final VoidCallback? onFavoriteTap;
@@ -226,10 +236,115 @@ class ContainerCard extends StatelessWidget {
     if (container.state.toLowerCase() != 'running') return const [];
     final srv = server;
     if (srv == null) return const [];
+    // 用户自定义地址优先
+    final custom = customWebUrl?.trim();
+    if (custom != null && custom.isNotEmpty) {
+      final u = Uri.tryParse(custom);
+      if (u != null && u.hasScheme) {
+        return _webRow(context, u, 0);
+      }
+    }
     final urls = extractWebUrls(container.ports, srv);
     if (urls.isEmpty) return const [];
     final first = urls.first;
     final extra = urls.length - 1;
+    return _webRow(context, first, extra);
+  }
+
+  /// 长按菜单：编辑地址（持久化由 onEditWebUrl 处理）/ 系统浏览器 / 复制。
+  Future<void> _showWebUrlMenu(BuildContext context, Uri first) async {
+    final actions = <(
+      String,
+      Future<void> Function(),
+    )>[
+      (
+        '编辑地址',
+        () => _editWebUrl(context, first),
+      ),
+      (
+        '系统浏览器打开',
+        () async {
+          final ok = await canLaunchUrl(first);
+          if (ok) await launchUrl(first, mode: LaunchMode.externalApplication);
+        },
+      ),
+      (
+        '复制地址',
+        () async {
+          await Clipboard.setData(ClipboardData(text: first.toString()));
+          showAppToast('已复制');
+        },
+      ),
+    ];
+    if (!context.mounted) return;
+    await showCupertinoModalPopup<void>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: Text(first.toString()),
+        actions: [
+          for (final (label, fn) in actions)
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.pop(sheetContext);
+                fn();
+              },
+              child: Text(label),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.pop(sheetContext),
+          child: const Text('取消'),
+        ),
+      ),
+    );
+  }
+
+  /// 弹出编辑框；确定后回调 onEditWebUrl 持久化（列表页负责存取）。
+  Future<void> _editWebUrl(BuildContext context, Uri current) async {
+    final controller = TextEditingController(text: customWebUrl ?? current.toString());
+    final newUrl = await showCupertinoDialog<String>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: const Text('编辑 Web 地址'),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: CupertinoTextField(
+            controller: controller,
+            autofocus: true,
+            placeholder: 'http://192.168.1.10:5244',
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('取消'),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () {
+              final v = controller.text.trim();
+              // 清空 = 恢复自动解析
+              if (v.isEmpty) {
+                Navigator.pop(dialogContext, '');
+                return;
+              }
+              final u = Uri.tryParse(v);
+              if (u == null || !u.hasScheme) {
+                Navigator.pop(dialogContext);
+                return;
+              }
+              Navigator.pop(dialogContext, v);
+            },
+            child: const Text('确定'),
+          ),
+        ],
+      ),
+    );
+    if (newUrl == null) return;
+    onEditWebUrl?.call(container.containerID, newUrl.isEmpty ? null : newUrl);
+  }
+
+  List<Widget> _webRow(BuildContext context, Uri first, int extra) {
     return [
       const SizedBox(height: 12),
       GestureDetector(
@@ -243,11 +358,7 @@ class ContainerCard extends StatelessWidget {
             ),
           );
         },
-        onLongPress: () async {
-          // 长按用系统浏览器打开（部分页面如终端在 WebView 里不可用）
-          final ok = await canLaunchUrl(first);
-          if (ok) await launchUrl(first, mode: LaunchMode.externalApplication);
-        },
+        onLongPress: () => _showWebUrlMenu(context, first),
         child: Row(
           children: [
             Icon(TablerIcons.world,
