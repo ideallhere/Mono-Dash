@@ -43,12 +43,19 @@ android {
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
             }
+            // CI/无 keystore 场景：回落调试签名（自用安装足够；上架需配置正式签名）
+            storeFile = storeFile ?: file(System.getenv("RELEASE_STORE_FILE") ?: "debug.keystore")
         }
     }
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName("release")
+            // key.properties 存在才用 release 签名，否则回落 debug 签名
+            signingConfig = if (rootProject.file("key.properties").exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 }
